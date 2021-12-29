@@ -1,0 +1,85 @@
+plugins {
+ id 'java-library'
+ id 'base'
+ id 'eclipse'
+ id 'application'
+ id 'maven-publish'
+ id 'java-gradle-plugin'
+}
+
+description = 'Jiffy'
+group = 'pl.edu.put'
+version = '1.0'
+
+java {
+    //toolchain {
+        //languageVersion = JavaLanguageVersion.of(11)
+    //}
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    implementation 'org.slf4j:slf4j-api:1.7.30'
+    implementation 'ch.qos.logback:logback-classic:1.+'
+    implementation 'org.jgrapht:jgrapht-core:1.3.1'
+    implementation 'org.jgrapht:jgrapht-ext:1.3.1'
+    testImplementation 'commons-cli:commons-cli:1.4+'
+    testImplementation 'junit:junit:4.13.+'
+    testImplementation 'org.slf4j:slf4j-api:1.7.+'
+    testImplementation 'ch.qos.logback:logback-classic:1.+'
+}
+
+test {
+    testLogging.showStandardStreams = true
+}
+
+tasks.withType(JavaCompile) {
+    options.encoding = 'UTF-8'
+}
+
+mainClassName = ""
+
+task runConctest(type: JavaExec) {
+    dependsOn compileJava
+    dependsOn compileTestJava
+    group = 'Run'
+    description = "Run the Concurrent Test"
+    standardInput = System.in
+
+    if (project.hasProperty('myargs')){
+        String[] myargsArray = myargs.split(' ')
+        for (int i = 0; i < myargsArray.length; i++)
+            myargsArray[i] = myargsArray[i].trim();
+        args(myargsArray)
+    }
+
+    // jvmArgs '-agentpath:/linuxadd/programs/yourkit/YourKit-JavaProfiler-2019.8/bin/linux-x86-64/libyjpagent.so=disablestacktelemetry,exceptions=disable,delay=10000'
+
+    classpath sourceSets.main.runtimeClasspath
+    classpath sourceSets.test.runtimeClasspath
+    main = "pl.edu.put.concurrent.conctest.Main"
+}
+
+task runNumactlConctest(type: Exec) {
+     dependsOn compileJava
+     dependsOn compileTestJava
+     group = "Execution"
+     description = "Run the Concurrent Test class with numactl"
+
+     // def cmd = ["numactl", "-C", "-0-3", "java", "-classpath", "${sourceSets.main.runtimeClasspath.getAsPath()}:${sourceSets.test.runtimeClasspath.getAsPath()}", "org.tkobciam.concurrent.conctest.Main"]
+//
+//    // standardInput = System.in
+//    // if (project.hasProperty('myargs')) {
+//    //     String[] myargsArray = myargs.split(' ')
+//    //     for (int i = 0; i < myargsArray.length; i++)
+//    //         cmd.add(myargsArray[i].trim());
+//    //  }
+//
+// 	 commandLine cmd
+}
+
+
+
