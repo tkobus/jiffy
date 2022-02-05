@@ -35,6 +35,7 @@
 package pl.edu.put.concurrent.conctest;
 
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.Random;
 import java.util.stream.Collectors;
@@ -42,6 +43,8 @@ import java.util.stream.Collectors;
 import pl.edu.put.concurrent.MultiversionNavigableMap;
 import pl.edu.put.concurrent.jiffy.Jiffy;
 import pl.edu.put.concurrent.jiffy.RuntimeStatistics;
+
+import static java.util.Collections.emptyList;
 
 /**
  * This is the main class of a tool, referred to as checker, which we developed
@@ -279,21 +282,21 @@ public class ConcurrentMapTest {
 
 	volatile boolean quit = false;
 
-	public void run(int mode, int threads, int warmupTime, int execTime, boolean performanceTestsOnly) {
+	public List<Trace> run(int mode, int threads, int warmupTime, int execTime, boolean performanceTestsOnly) {
 		System.out.format("Running Jiffy concurrent test:\n" + "- mode: %d\n" + "- threads: %d\n"
 				+ "- warmup time: %d (millis)\n" + "- exec time: %d (millis)\n\n", mode, threads, warmupTime, execTime);
 
 		run(mode, threads, warmupTime, true, performanceTestsOnly);
-		run(mode, threads, execTime, false, performanceTestsOnly);
+		return run(mode, threads, execTime, false, performanceTestsOnly);
 	}
 
 	// TESTS_MODE = 0 - default, 1 - short, 2 - not even cycle detection, different
 	// convention than in main
 	public static int TESTS_MODE = 0;
 
-	private void run(int mode, int threads, int durationMillis, boolean dryRun, boolean performanceRun) {
+	private List<Trace> run(int mode, int threads, int durationMillis, boolean dryRun, boolean performanceRun) {
 		if (durationMillis == 0)
-			return;
+			return emptyList();
 
 		// different convention than in main
 		TESTS_MODE = 2 - mode;
@@ -380,7 +383,7 @@ public class ConcurrentMapTest {
 		if (dryRun && !performanceRun) {
 			System.gc();
 			System.gc();
-			return;
+			return emptyList();
 		}
 
 		System.out.println(WorkerStatistics.getHeader());
@@ -403,17 +406,15 @@ public class ConcurrentMapTest {
 			System.out.println("Runtime statistics:\n" + totalRuntimeStatistics.toString());
 
 		if (performanceRun) {
-			return;
+			return emptyList();
 		}
 
 		/**************************************/
 
 		System.out.println();
 
-		List<Trace> traces = Arrays.asList(workerThreads).stream().map(x -> x.trace).collect(Collectors.toList());
-		TraceChecker checker = new TraceChecker(traces);
-		checker.run(TraceChecker.Mode.getMode(mode));
-
-		System.out.println("Finished.");
+		return Arrays.asList(workerThreads).stream()
+				.map(x -> x.trace)
+				.collect(Collectors.toList());
 	}
 }

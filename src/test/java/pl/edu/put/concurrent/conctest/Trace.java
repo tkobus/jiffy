@@ -39,8 +39,11 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import lombok.Data;
+import lombok.Value;
 import pl.edu.put.utils.Pair;
 
+@Data
 public class Trace {
 
 	private static final int INIT_SIZE = 1000000;
@@ -88,6 +91,7 @@ public class Trace {
 		}
 	}
 
+	@Data
 	public static class TimestampEvent extends Event {
 		long timestamp;
 
@@ -122,6 +126,7 @@ public class Trace {
 		}
 	}
 
+	@Data
 	public static class GetEvent extends Event {
 		int key;
 		String value;
@@ -163,6 +168,7 @@ public class Trace {
 		}
 	}
 
+	@Data
 	public static class PutEvent extends Event {
 		int key;
 		String value;
@@ -207,6 +213,7 @@ public class Trace {
 		}
 	}
 
+	@Data
 	public static class DeleteEvent extends Event {
 		int key;
 		String oldValue;
@@ -248,6 +255,7 @@ public class Trace {
 		}
 	}
 
+	@Data
 	public static class BatchEvent extends Event {
 		Map<Integer, PutEvent> putEvents;
 		Map<Integer, DeleteEvent> deleteEvents;
@@ -335,6 +343,7 @@ public class Trace {
 		}
 	}
 
+	@Data
 	public static class SnapshotEvent extends Event {
 		List<GetEvent> getEvents = new ArrayList<>();
 

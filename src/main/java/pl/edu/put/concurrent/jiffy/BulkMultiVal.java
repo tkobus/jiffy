@@ -273,7 +273,7 @@ class BulkMultiVal<K, V> extends SingleMultiVal<K, V> {
 		return false;
 	}
 
-	public Pair<MultiVal<K, V>, MultiVal<K, V>> addAndSplit(K key, V value, int index) {
+	public DoubleMultiVal<K,V> addAndSplit(K key, V value, int index) {
 		throw new UnsupportedOperationException();
 	}
 

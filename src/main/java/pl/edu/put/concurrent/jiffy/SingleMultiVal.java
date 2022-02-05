@@ -719,7 +719,7 @@ class SingleMultiVal<K, V> implements MultiVal<K, V> {
 	}
 
 	@Override
-	public Pair<MultiVal<K, V>, MultiVal<K, V>> addAndSplit(K key, V value, int index) {
+	public DoubleMultiVal<K,V> addAndSplit(K key, V value, int index) {
 		SingleMultiVal<K, V> leftMultiVal = new SingleMultiVal<K, V>(false);
 		SingleMultiVal<K, V> rightMultiVal = new SingleMultiVal<K, V>(false);
 
@@ -824,7 +824,7 @@ class SingleMultiVal<K, V> implements MultiVal<K, V> {
 						leftMultiVal.fpString(), rightMultiVal.fpString());
 		}
 
-		return new Pair<>(leftMultiVal, rightMultiVal);
+		return new DoubleMultiVal<>(leftMultiVal, rightMultiVal);
 	}
 
 	private void recalculateIndices() {
@@ -844,7 +844,7 @@ class SingleMultiVal<K, V> implements MultiVal<K, V> {
 		return builder.toString();
 	}
 
-	public Pair<MultiVal<K, V>, MultiVal<K, V>> addAndSplit(Batch<K, V> batch, MultiValIndices<K> indices) {
+	public DoubleMultiVal<K,V> addAndSplit(Batch<K, V> batch, MultiValIndices<K> indices) {
 		SingleMultiVal<K, V> leftMultiVal = new SingleMultiVal<K, V>(false);
 		int leftMultiValSize = indices.endSize / 2;
 		leftMultiVal.keys = new Object[leftMultiValSize];
@@ -969,7 +969,7 @@ class SingleMultiVal<K, V> implements MultiVal<K, V> {
 			rightMultiVal.recalculateIndices();
 		}
 
-		return new Pair<>(leftMultiVal, rightMultiVal);
+		return new DoubleMultiVal<>(leftMultiVal, rightMultiVal);
 	}
 
 	private void mergeAndRemove(MultiVal<K, V> mvalLeft, MultiVal<K, V> mvalRight, int indexOfKeyInNextMultiVal) {

@@ -34,38 +34,16 @@
 
 package pl.edu.put.concurrent.jiffy;
 
-import java.lang.invoke.MethodHandles;
-import java.lang.invoke.VarHandle;
-import java.util.AbstractCollection;
-import java.util.AbstractMap;
-import java.util.AbstractSet;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.Comparator;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Map;
-import java.util.NavigableSet;
-import java.util.NoSuchElementException;
-import java.util.Objects;
-import java.util.Random;
-import java.util.Set;
-import java.util.SortedMap;
-import java.util.Spliterator;
-import java.util.concurrent.ConcurrentSkipListMap;
-import java.util.function.BiConsumer;
-import java.util.function.BiFunction;
-import java.util.function.Consumer;
-import java.util.function.Function;
-import java.util.function.Predicate;
-
 import pl.edu.put.concurrent.MultiversionNavigableMap;
 import pl.edu.put.concurrent.MultiversionNavigableMapSnapshot;
 import pl.edu.put.concurrent.jiffy.SingleMultiVal.MultiValIndices;
 import pl.edu.put.utils.Pair;
-import pl.edu.put.utils.Quad;
-import pl.edu.put.utils.Triple;
+
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.VarHandle;
+import java.util.*;
+import java.util.concurrent.ConcurrentSkipListMap;
+import java.util.function.*;
 
 public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNavigableMap<K, V> {
 	/*
@@ -80,46 +58,29 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 	enum ScalingMode {
 		HardMaxMinSizes(1), MaxMinSizesWithAutoscaling(2), FullAutoscaling(3);
 
-		private int mode;
+		private final int mode;
 
 		ScalingMode(int mode) {
 			this.mode = mode;
 		}
 
 		public static ScalingMode getMode(int mode) {
-			ScalingMode ret = null;
-			switch (mode) {
-			case 1:
-				ret = HardMaxMinSizes;
-				break;
-			case 2:
-				ret = MaxMinSizesWithAutoscaling;
-				break;
-			case 3:
-				ret = FullAutoscaling;
-				break;
-			}
-
-			return ret;
+			return switch (mode) {
+				case 1 -> HardMaxMinSizes;
+				case 2 -> MaxMinSizesWithAutoscaling;
+				case 3 -> FullAutoscaling;
+				default -> null;
+			};
 		}
 
 		@Override
 		public String toString() {
-			String ret = null;
-
-			switch (mode) {
-			case 1:
-				ret = "HardMaxMinSizes";
-				break;
-			case 2:
-				ret = "MaxMinSizesWithAutoscaling";
-				break;
-			case 3:
-				ret = "FullAutoscaling";
-				break;
-			}
-
-			return ret;
+			return switch (mode) {
+				case 1 -> "HardMaxMinSizes";
+				case 2 -> "MaxMinSizesWithAutoscaling";
+				case 3 -> "FullAutoscaling";
+				default -> null;
+			};
 		}
 	}
 
@@ -138,23 +99,11 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 
 	public static boolean USE_TSC = true;
 
-	ThreadLocal<RuntimeStatistics> stats = new ThreadLocal<>() {
-		protected RuntimeStatistics initialValue() {
-			return new RuntimeStatistics();
-		};
-	};
+	ThreadLocal<RuntimeStatistics> stats = ThreadLocal.withInitial(RuntimeStatistics::new);
 
-	ThreadLocal<Long> splitCounter = new ThreadLocal<>() {
-		protected Long initialValue() {
-			return 0l;
-		};
-	};
+	ThreadLocal<Long> splitCounter = ThreadLocal.withInitial(() -> 0L);
 
-	ThreadLocal<Long> mergeCounter = new ThreadLocal<>() {
-		protected Long initialValue() {
-			return 0l;
-		};
-	};
+	ThreadLocal<Long> mergeCounter = ThreadLocal.withInitial(() -> 0L);
 
 	public long getSplitCount() {
 		return splitCounter.get();
@@ -209,26 +158,14 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 			}
 		}
 
-		return new Pair<Integer, List<Integer>>(indexHeight, levelCountArray);
+		return new Pair<>(indexHeight, levelCountArray);
 	}
 
-	ThreadLocal<Integer> currentReadOpAutoscalerSkip = new ThreadLocal<>() {
-		protected Integer initialValue() {
-			return 0;
-		};
-	};
+	ThreadLocal<Integer> currentReadOpAutoscalerSkip = ThreadLocal.withInitial(() -> 0);
 
-	ThreadLocal<Integer> lastReadOpAutoscalerSkip = new ThreadLocal<>() {
-		protected Integer initialValue() {
-			return 0;
-		};
-	};
+	ThreadLocal<Integer> lastReadOpAutoscalerSkip = ThreadLocal.withInitial(() -> 0);
 
-	ThreadLocal<Long> autoscalingLastTimeSet = new ThreadLocal<>() {
-		protected Long initialValue() {
-			return getCurrentVersion();
-		};
-	};
+	ThreadLocal<Long> autoscalingLastTimeSet = ThreadLocal.withInitial(this::getCurrentVersion);
 
 	/**
 	 * The comparator used to maintain order in this map, or null if using natural
@@ -275,10 +212,10 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 			return;
 
 		long finalVersion = 1; // currentVersion == 0;
-		Node<K, V> base = new Node<K, V>(null, null, null, null);
+		Node<K, V> base = new Node<>(null, null, null, null);
 		MultiVal<K, V> mval = new SingleMultiVal<>(true);
-		base.revisionHead = new Revision<K, V>(mval, finalVersion, null, null, -1, -1, null, null, null);
-		Index<K, V> h = new Index<K, V>(base, null, null);
+		base.revisionHead = new Revision<>(mval, finalVersion, null, null, -1, -1, null, null, null);
+		Index<K, V> h = new Index<>(base, null, null);
 		HEAD.compareAndSet(this, null, h);
 		publishVersion(finalVersion);
 	}
@@ -345,12 +282,10 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 		if (key == null)
 			throw new NullPointerException();
 
-		long[] statsArray = null;
-		if (STATISTICS)
-			statsArray = new long[5];
+		long[] statsArray = STATISTICS ? new long[5] : null;
 
-		Node<K, V> ret = null;
-		Revision<K, V> retHead = null;
+		Node<K, V> ret;
+		Revision<K, V> retHead;
 		Comparator<? super K> cmp = comparator;
 		outer: for (;;) {
 			if (STATISTICS)
@@ -426,7 +361,7 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 					if (b.acquireNext() != n) {
 						if (STATISTICS)
 							statsArray[4]++;
-						continue insertionPoint;
+						continue;
 					}
 
 					ret = b;
@@ -442,12 +377,6 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 
 		return getProperValue((K) key, ret, retHead, version);
 	}
-
-	static ThreadLocal<Integer> dotCounter = new ThreadLocal<>() {
-		protected Integer initialValue() {
-			return 0;
-		};
-	};
 
 	private Revision<K, V> retrieveRevision(Node<K, V> node, K key, long version, Revision<K, V> head) {
 		int skip = currentReadOpAutoscalerSkip.get();
@@ -499,9 +428,7 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 			Revision<K, V> head) {
 		Revision<K, V> revision;
 
-		long[] statsArray = null;
-		if (STATISTICS)
-			statsArray = new long[3];
+		long[] statsArray = STATISTICS ? new long[3] : null;
 
 		revision = node.getBatchRevision(key, descriptor, head, this, statsArray);
 
@@ -530,72 +457,65 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 	 * threadLocal.
 	 **/
 	static class ThreadLocalRandom {
-		static ThreadLocal<Random> tlr = ThreadLocal.withInitial(() -> new Random());
+		static ThreadLocal<Random> tlr = ThreadLocal.withInitial(Random::new);
 
-		static final int nextSecondarySeed() {
+		static int nextSecondarySeed() {
 			return tlr.get().nextInt();
 		}
 	}
 
 	private double[] newAutoscaleParamForUpdates(double[] currentAutoscalerParams, long delta) {
 		double deltaSeconds = Math.min(delta / 10000000.0, 0.5);
-		double[] ret = new double[] { (1 - deltaSeconds) * currentAutoscalerParams[0],
-				deltaSeconds + (1 - deltaSeconds) * currentAutoscalerParams[1] };
 
-		return ret;
+		return new double[] { (1 - deltaSeconds) * currentAutoscalerParams[0],
+				deltaSeconds + (1 - deltaSeconds) * currentAutoscalerParams[1] };
 	}
 
 	private double[] newAutoscaleParamForReads(double[] currentAutoscalerParams, long delta) {
 		double deltaSeconds = Math.min(delta / 10000000.0, 0.5);
-		double[] ret = new double[] { deltaSeconds + (1 - deltaSeconds) * currentAutoscalerParams[0],
-				(1 - deltaSeconds) * currentAutoscalerParams[1] };
 
-		return ret;
+		return new double[] { deltaSeconds + (1 - deltaSeconds) * currentAutoscalerParams[0],
+				(1 - deltaSeconds) * currentAutoscalerParams[1] };
 	}
 
-	private int whatUpdate(int endSize, double[] newAutoscaleParams, Revision<K, V> head) {
+	private int whatUpdate(int endSize, double[] newAutoscaleParams) {
 		int ret = 0;
 
 		switch (NODE_SCALING_MODE) {
-		case HardMaxMinSizes: {
-			if (endSize > MAX_MULTIVAL_SIZE)
-				ret = 1;
-			else if (endSize < MIN_MULTIVAL_SIZE)
-				ret = -1;
-			break;
-		}
-		case MaxMinSizesWithAutoscaling: {
+			case HardMaxMinSizes -> {
+				if (endSize > MAX_MULTIVAL_SIZE)
+					ret = 1;
+				else if (endSize < MIN_MULTIVAL_SIZE)
+					ret = -1;
+			}
+			case MaxMinSizesWithAutoscaling -> {
 //			if (endSize > MAX_MULTIVAL_SIZE
 //					|| (endSize >= 2 && newAutoscaleParam > AUTOSCALE_CONFIGURATION.splitThreshold))
 //				ret = 1;
 //			else if (endSize <= MIN_MULTIVAL_SIZE || newAutoscaleParam < AUTOSCALE_CONFIGURATION.mergeThreshold)
 //				ret = -1;
-			break;
-		}
-		case FullAutoscaling: {
-			// 0.25 writers - prefSize should be 100
-			// 0.5 writers - prefSize should be 50
-			// y = ax + b
-			// b = 150
-			// a = -200
-
-			double sum = newAutoscaleParams[0] + newAutoscaleParams[1];
-			double writersRatio = sum == 0 ? 0.25 : newAutoscaleParams[1] / sum;
-
-			// int preferredSize = writersRatio > 0.375 ? 50 : 100;
-			int preferredSize = (int) Math.max(-200 * writersRatio + 150, 25);
-			if (endSize >= 2 && endSize > 3 * preferredSize)
-				ret = 1;
-			else if (endSize < preferredSize * 2 / 3) {
-				if (endSize < Short.MAX_VALUE / 2)
-					ret = -1;
 			}
+			case FullAutoscaling -> {
+				// 0.25 writers - prefSize should be 100
+				// 0.5 writers - prefSize should be 50
+				// y = ax + b
+				// b = 150
+				// a = -200
 
-			break;
-		}
-		default: {
-			throw new JiffyInternalException("wrong scaling mode, should not happen");
-		}
+				double sum = newAutoscaleParams[0] + newAutoscaleParams[1];
+				double writersRatio = sum == 0 ? 0.25 : newAutoscaleParams[1] / sum;
+
+				// int preferredSize = writersRatio > 0.375 ? 50 : 100;
+				int preferredSize = (int) Math.max(-200 * writersRatio + 150, 25);
+				if (endSize >= 2 && endSize > 3 * preferredSize)
+					ret = 1;
+				else if (endSize < preferredSize * 2 / 3) {
+					if (endSize < Short.MAX_VALUE / 2)
+						ret = -1;
+				}
+
+			}
+			default -> throw new JiffyInternalException("wrong scaling mode, should not happen");
 		}
 
 		return ret;
@@ -607,21 +527,19 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 	 *
 	 * @param key          the key
 	 * @param value        the value that must be associated with key
-	 * @param onlyIfAbsent if should not insert if already present
 	 * @return the newly inserted revision and the next revision
 	 */
-	private Triple<Revision<K, V>, Revision<K, V>, Integer> doPutSingle(K key, V value, long optimisticVersion,
-			boolean doRemove) {
+	private NewRevisionWithContext<K,V> doPutSingle(K key, V value, long optimisticVersion) {
 		if (head != null && key == null)
 			throw new NullPointerException();
 
-		Triple<Revision<K, V>, Revision<K, V>, Integer> ret = null;
+		NewRevisionWithContext<K,V> ret;
 		long[] statsArray = null;
 		if (STATISTICS)
 			statsArray = new long[9];
 
 		Comparator<? super K> cmp = comparator;
-		Revision<K, V> revision = new Revision<K, V>(null, -optimisticVersion, null);
+		Revision<K, V> revision = new Revision<>(null, -optimisticVersion, null);
 
 		outer: for (;;) {
 			if (STATISTICS)
@@ -653,7 +571,7 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 
 			assert b != null; // because we have at least one MultiVal
 			Node<K, V> n;
-			insertionPoint: for (;;) { // find insertion point
+			for (; ; ) { // find insertion point
 				if (STATISTICS)
 					statsArray[1]++;
 				int c;
@@ -690,13 +608,13 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 						if (STATISTICS)
 							statsArray[4]++;
 						helpPut(head);
-						continue insertionPoint;
+						continue;
 					}
 
 					if (b.acquireNext() != n) {
 						if (STATISTICS)
 							statsArray[5]++;
-						continue insertionPoint;
+						continue;
 					}
 
 					MultiVal<K, V> headMval = head.getValue();
@@ -706,24 +624,19 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 					double[] newAutoscaleParam = newAutoscaleParamForUpdates(head.getAutoscaleParam(), delta);
 
 					int endSize = headMval.size() + (index >= 0 ? 0 : 1);
-					if (whatUpdate(endSize, newAutoscaleParam, head) != 1) {
+					if (whatUpdate(endSize, newAutoscaleParam) != 1) {
 						if (STATISTICS)
 							statsArray[6]++;
-						MultiVal<K, V> mval;
-						if (!doRemove)
-							mval = headMval.add(key, value, index);
-						else
-							mval = headMval.remove(key, index);
+						MultiVal<K, V> mval = headMval.add(key, value, index);
 						revision.value = null;
 						revision.setValue(mval, null);
 						revision.next = head;
 						revision.setAutoscaleParam(newAutoscaleParam);
 
 						if (b.tryPutRevisionSingle(revision)) {
-							ret = new Triple<>(revision, head, index);
+							ret = new NewRevisionWithContext<>(revision, head, index);
 							break outer;
 						}
-						continue insertionPoint;
 					} else {
 						if (STATISTICS)
 							statsArray[7]++;
@@ -736,13 +649,13 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 							// optimization
 							Revision<K, V> newHead = b.acquireRevisionHead();
 							if (newHead != head)
-								continue insertionPoint;
+								continue;
 						}
 
-						Pair<MultiVal<K, V>, MultiVal<K, V>> mvalPair = head.getValue().addAndSplit(key, value, index);
-						SplitRevision<K, V> leftRevision = new SplitRevision<>(mvalPair.first, revision.version, head,
+						DoubleMultiVal<K, V> mvalPair = head.getValue().addAndSplit(key, value, index);
+						SplitRevision<K, V> leftRevision = new SplitRevision<>(mvalPair.left, revision.version, head,
 								true);
-						SplitRevision<K, V> rightRevision = new SplitRevision<>(mvalPair.second, revision.version, head,
+						SplitRevision<K, V> rightRevision = new SplitRevision<>(mvalPair.right, revision.version, head,
 								false);
 						leftRevision.sibling = rightRevision;
 						rightRevision.sibling = leftRevision;
@@ -753,8 +666,9 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 						leftRevision.node = b;
 						leftRevision.levels = levels;
 
-						if (!b.tryPutRevisionSingle(leftRevision))
-							continue insertionPoint; // retry
+						if (!b.tryPutRevisionSingle(leftRevision)) {
+							continue; // retry
+						}
 
 						if (SPLIT_MERGE_STATISTICS)
 							splitCounter.set(splitCounter.get() + 1);
@@ -764,7 +678,7 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 
 						helpSplit(leftRevision);
 
-						ret = new Triple<>(revision, revision.next, index);
+						ret = new NewRevisionWithContext<>(revision, revision.next, index);
 						break outer;
 					}
 				}
@@ -780,19 +694,14 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 	}
 
 	// TODO find uses, maybe avoid if
-	private long helpTempSplitNode(TempSplitNode<K, V> tempSplitNode, Node<K, V> previous) {
-		long ret = 0;
-
+	private void helpTempSplitNode(TempSplitNode<K, V> tempSplitNode, Node<K, V> previous) {
 		if (tempSplitNode.leftRevision.descriptor == null)
-			ret = helpTempSplitNodeSingle(tempSplitNode, previous);
+			helpTempSplitNodeSingle(tempSplitNode, previous);
 		else
-			ret = helpTempSplitNodeBatch(tempSplitNode, previous);
-
-		return ret;
+			helpTempSplitNodeBatch(tempSplitNode, previous);
 	}
 
-	private long helpTempSplitNodeSingle(TempSplitNode<K, V> tempSplitNode, Node<K, V> previous) {
-		long ret;
+	private void helpTempSplitNodeSingle(TempSplitNode<K, V> tempSplitNode, Node<K, V> previous) {
 		long[] statsArray = null;
 		if (STATISTICS)
 			statsArray = new long[2];
@@ -809,19 +718,16 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 					statsArray[1]++;
 				cleanTerminatedNode(tempSplitNode.key);
 			}
-			ret = version;
 		} else {
-			ret = helpPut(tempSplitNode.leftRevision);
+			helpPut(tempSplitNode.leftRevision);
 		}
 
 		if (STATISTICS)
 			stats.get().updateHelpTempSplitNode(statsArray);
-		return ret;
 	}
 
 	// Almost the same as helpTempSplitNodeSingle, keeping separate for clarity
-	private long helpTempSplitNodeBatch(TempSplitNode<K, V> tempSplitNode, Node<K, V> previous) {
-		long ret;
+	private void helpTempSplitNodeBatch(TempSplitNode<K, V> tempSplitNode, Node<K, V> previous) {
 		long[] statsArray = null;
 		if (STATISTICS)
 			statsArray = new long[2];
@@ -838,19 +744,17 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 					statsArray[1]++;
 				cleanTerminatedNode(tempSplitNode.key);
 			}
-			ret = version;
 		} else {
-			ret = helpPut(tempSplitNode.leftRevision);
+			helpPut(tempSplitNode.leftRevision);
 		}
 
 		if (STATISTICS)
 			stats.get().updateHelpTempSplitNodeBatch(statsArray);
-		return ret;
 	}
 
 	// TODO find uses, maybe avoid if
 	private long helpSplit(SplitRevision<K, V> revision) {
-		long ret = 0;
+		long ret;
 
 		if (revision.descriptor == null)
 			ret = helpSplitSingle(revision);
@@ -865,19 +769,18 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 		if (STATISTICS)
 			statsArray = new long[11];
 
-		long ret = 0;
+		long ret;
 
 		outerIf: if (revision.left) {
 			if (STATISTICS)
 				statsArray[0]++;
 
-			SplitRevision<K, V> leftRevision = revision;
-			SplitRevision<K, V> rightRevision = leftRevision.sibling;
+			SplitRevision<K, V> rightRevision = revision.sibling;
 
-			Node<K, V> b = leftRevision.node;
+			Node<K, V> b = revision.node;
 			TempSplitNode<K, V> s = null;
 
-			outer: while (true) {
+			while (true) {
 				if (STATISTICS)
 					statsArray[1]++;
 
@@ -909,12 +812,12 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 						if (STATISTICS)
 							statsArray[5]++;
 
-						long version = leftRevision.acquireVersion();
+						long version = revision.acquireVersion();
 						if (version < 0) {
 							long currentVersion = getCurrentVersion();
 							if (currentVersion < -version)
 								publishVersion(currentVersion);
-							version = leftRevision.trySetVersion(currentVersion);
+							version = revision.trySetVersion(currentVersion);
 						}
 
 						rightRevision.trySetVersion(version);
@@ -922,7 +825,7 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 						break outerIf;
 					}
 
-					long version = leftRevision.acquireVersion();
+					long version = revision.acquireVersion();
 					if (version > 0) {
 						if (STATISTICS)
 							statsArray[6]++;
@@ -940,7 +843,7 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 					}
 
 					if (s == null)
-						s = new TempSplitNode<>(rightRevision.getValue().firstKey(), leftRevision, n);
+						s = new TempSplitNode<>(rightRevision.getValue().firstKey(), revision, n);
 					else
 						s.next = n;
 
@@ -952,7 +855,7 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 					}
 				}
 
-				long version = leftRevision.acquireVersion();
+				long version = revision.acquireVersion();
 				if (version > 0) {
 					if (STATISTICS)
 						statsArray[9]++;
@@ -971,7 +874,7 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 				Node<K, V> p = new Node<>(rightRevision.getValue().firstKey(), rightRevision, s.next, comparator);
 
 				if (!NEXT.compareAndSet(b, s, p))
-					continue outer; // p = null;
+					continue; // p = null;
 
 				if (STATISTICS)
 					statsArray[10]++;
@@ -979,43 +882,40 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 				long currentVersion = getCurrentVersion();
 				if (currentVersion < -version)
 					publishVersion(currentVersion);
-				version = leftRevision.trySetVersion(currentVersion);
+				version = revision.trySetVersion(currentVersion);
 
 				rightRevision.trySetVersion(version);
 
-				if (p != null) {
-					int levels = leftRevision.levels;
-					VarHandle.acquireFence();
-					Index<K, V> h = head;
-					int lr = ThreadLocalRandom.nextSecondarySeed();
-					if ((lr & 0x3) == 0) { // add indices with 1/4 prob
-						int hr = ThreadLocalRandom.nextSecondarySeed();
-						long rnd = ((long) hr << 32) | ((long) lr & 0xffffffffL);
-						int skips = levels; // levels to descend before add
-						Index<K, V> x = null;
-						for (;;) { // create at most 62 indices
-							x = new Index<K, V>(p, x, null);
-							if (rnd >= 0L || --skips < 0)
-								break;
-							else
-								rnd <<= 1;
-						}
-						if (addIndices(h, skips, x, comparator) && skips < 0 && head == h) { // try to add new
-																								// level
-							Index<K, V> hx = new Index<K, V>(p, x, null);
-							Index<K, V> nh = new Index<K, V>(h.node, h, hx);
-							HEAD.compareAndSet(this, h, nh);
-						}
-						if (p.isTerminated()) // deleted while adding indices
-							findPredecessor(p.key, comparator); // clean
+				int levels = revision.levels;
+				VarHandle.acquireFence();
+				Index<K, V> h = head;
+				int lr = ThreadLocalRandom.nextSecondarySeed();
+				if ((lr & 0x3) == 0) { // add indices with 1/4 prob
+					int hr = ThreadLocalRandom.nextSecondarySeed();
+					long rnd = ((long) hr << 32) | ((long) lr & 0xffffffffL);
+					int skips = levels; // levels to descend before add
+					Index<K, V> x = null;
+					for (; ; ) { // create at most 62 indices
+						x = new Index<>(p, x, null);
+						if (rnd >= 0L || --skips < 0)
+							break;
+						else
+							rnd <<= 1;
 					}
+					if (addIndices(h, skips, x, comparator) && skips < 0 && head == h) { // try to add new
+						// level
+						Index<K, V> hx = new Index<>(p, x, null);
+						Index<K, V> nh = new Index<>(h.node, h, hx);
+						HEAD.compareAndSet(this, h, nh);
+					}
+					if (p.isTerminated()) // deleted while adding indices
+						findPredecessor(p.key, comparator); // clean
 				}
 
 				ret = version;
 				break outerIf;
 			}
 		} else {
-			SplitRevision<K, V> rightSibling = revision;
 			SplitRevision<K, V> leftSibling = revision.sibling;
 
 			// Since we're helping rightSibling, it's node must have been already CASsed-in.
@@ -1027,7 +927,7 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 					publishVersion(currentVersion);
 				version = leftSibling.trySetVersion(currentVersion);
 			}
-			ret = rightSibling.trySetVersion(version);
+			ret = revision.trySetVersion(version);
 		}
 
 		if (STATISTICS)
@@ -1040,19 +940,18 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 		if (STATISTICS)
 			statsArray = new long[11];
 
-		long ret = 0;
+		long ret;
 
 		outerIf: if (revision.left) {
 			if (STATISTICS)
 				statsArray[0]++;
 
-			SplitRevision<K, V> leftRevision = revision;
-			SplitRevision<K, V> rightRevision = leftRevision.sibling;
+			SplitRevision<K, V> rightRevision = revision.sibling;
 
-			Node<K, V> b = leftRevision.node;
+			Node<K, V> b = revision.node;
 			TempSplitNode<K, V> s = null;
 
-			outer: while (true) {
+			while (true) {
 				if (STATISTICS)
 					statsArray[1]++;
 
@@ -1062,7 +961,7 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 					if (STATISTICS)
 						statsArray[2]++;
 
-					ret = leftRevision.effectiveVersion();
+					ret = revision.effectiveVersion();
 					break outerIf;
 				}
 
@@ -1084,12 +983,11 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 						if (STATISTICS)
 							statsArray[5]++;
 
-						long version = leftRevision.effectiveVersion();
-						ret = version;
+						ret = revision.effectiveVersion();
 						break outerIf;
 					}
 
-					long version = leftRevision.effectiveVersion();
+					long version = revision.effectiveVersion();
 					if (version > 0) {
 						if (STATISTICS)
 							statsArray[6]++;
@@ -1107,7 +1005,7 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 					}
 
 					if (s == null)
-						s = new TempSplitNode<>(rightRevision.getValue().firstKey(), leftRevision, n);
+						s = new TempSplitNode<>(rightRevision.getValue().firstKey(), revision, n);
 					else
 						s.next = n;
 
@@ -1119,7 +1017,7 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 					}
 				}
 
-				long version = leftRevision.effectiveVersion();
+				long version = revision.effectiveVersion();
 				if (version > 0) {
 					if (STATISTICS)
 						statsArray[9]++;
@@ -1138,37 +1036,35 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 				Node<K, V> p = new Node<>(rightRevision.getValue().firstKey(), rightRevision, s.next, comparator);
 
 				if (!NEXT.compareAndSet(b, s, p))
-					continue outer; // p = null;
+					continue; // p = null;
 
 				if (STATISTICS)
 					statsArray[10]++;
 
-				if (p != null) {
-					int levels = leftRevision.levels;
-					VarHandle.acquireFence();
-					Index<K, V> h = head;
-					int lr = ThreadLocalRandom.nextSecondarySeed();
-					if ((lr & 0x3) == 0) { // add indices with 1/4 prob
-						int hr = ThreadLocalRandom.nextSecondarySeed();
-						long rnd = ((long) hr << 32) | ((long) lr & 0xffffffffL);
-						int skips = levels; // levels to descend before add
-						Index<K, V> x = null;
-						for (;;) { // create at most 62 indices
-							x = new Index<K, V>(p, x, null);
-							if (rnd >= 0L || --skips < 0)
-								break;
-							else
-								rnd <<= 1;
-						}
-						if (addIndices(h, skips, x, comparator) && skips < 0 && head == h) { // try to add new
-																								// level
-							Index<K, V> hx = new Index<K, V>(p, x, null);
-							Index<K, V> nh = new Index<K, V>(h.node, h, hx);
-							HEAD.compareAndSet(this, h, nh);
-						}
-						if (p.isTerminated()) // deleted while adding indices
-							findPredecessor(p.key, comparator); // clean
+				int levels = revision.levels;
+				VarHandle.acquireFence();
+				Index<K, V> h = head;
+				int lr = ThreadLocalRandom.nextSecondarySeed();
+				if ((lr & 0x3) == 0) { // add indices with 1/4 prob
+					int hr = ThreadLocalRandom.nextSecondarySeed();
+					long rnd = ((long) hr << 32) | ((long) lr & 0xffffffffL);
+					int skips = levels; // levels to descend before add
+					Index<K, V> x = null;
+					for (; ; ) { // create at most 62 indices
+						x = new Index<>(p, x, null);
+						if (rnd >= 0L || --skips < 0)
+							break;
+						else
+							rnd <<= 1;
 					}
+					if (addIndices(h, skips, x, comparator) && skips < 0 && head == h) { // try to add new
+						// level
+						Index<K, V> hx = new Index<>(p, x, null);
+						Index<K, V> nh = new Index<>(h.node, h, hx);
+						HEAD.compareAndSet(this, h, nh);
+					}
+					if (p.isTerminated()) // deleted while adding indices
+						findPredecessor(p.key, comparator); // clean
 				}
 				ret = version;
 				break outerIf;
@@ -1267,17 +1163,17 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 
 	// TODO find uses, maybe avoid if
 	private long helpMergeTerminator(MergeTerminatorRevision<K, V> terminator) {
-		long ret = 0;
+		long ret;
 
 		if (terminator.descriptor == null) 
-			ret = helpMergeTerminatorSingle(terminator, ret);
+			ret = helpMergeTerminatorSingle(terminator);
 		else
 			ret = helpMergeTerminatorBatch(terminator);
 		
 		return ret;
 	}
 
-	private long helpMergeTerminatorSingle(MergeTerminatorRevision<K, V> terminator, long ret) {
+	private long helpMergeTerminatorSingle(MergeTerminatorRevision<K, V> terminator) {
 		long[] statsArray = null;
 		if (STATISTICS)
 			statsArray = new long[15];
@@ -1285,6 +1181,7 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 		Node<K, V> b = terminator.node;
 		Node<K, V> bb = null;
 
+		long ret;
 		outer: while (true) {
 			if (STATISTICS)
 				statsArray[0]++;
@@ -1297,11 +1194,11 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 				tryReduceLevel();
 				
 				ret = terminator.acquireVersion();
-				break outer;
+				break;
 			}
 
 			Node<K, V> bbb = null;
-			Node<K, V> nb = null; // new b
+			Node<K, V> nb; // new b
 			if (bb == null) {
 				if (STATISTICS)
 					statsArray[2]++;
@@ -1410,7 +1307,7 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 				tryReduceLevel();
 
 				ret = terminator.acquireVersion();
-				break outer;
+				break;
 			}
 
 			if (bb.acquireNext() != b) {
@@ -1430,7 +1327,7 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 				continue;
 			}
 
-			MultiVal<K, V> mval = new SingleMultiVal<K, V>(comparator, head.getValue(), terminator.next.getValue(),
+			MultiVal<K, V> mval = new SingleMultiVal<>(comparator, head.getValue(), terminator.next.getValue(),
 					terminator.indexOfKeyInNextMultiVal);
 
 			MergeRevision<K, V> mergeRevision = new MergeRevision<>(mval, terminator.version, head, terminator.next,
@@ -1443,7 +1340,7 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 					statsArray[14]++;
 
 				ret = helpMerge(mergeRevision);
-				break outer;
+				break;
 			}
 			bb = null;
 		}
@@ -1475,11 +1372,11 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 				tryReduceLevel();
 				
 				ret = terminator.descriptor.acquireVersion();
-				break outer;
+				break;
 			}
 
 			Node<K, V> bbb = null;
-			Node<K, V> nb = null; // new b
+			Node<K, V> nb; // new b
 			if (bb == null) {
 				if (STATISTICS)
 					statsArray[2]++;
@@ -1563,7 +1460,7 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 				tryReduceLevel();
 
 				ret = terminator.descriptor.acquireVersion();
-				break outer;
+				break;
 			}
 
 			if (head.descriptor == terminator.descriptor) {
@@ -1571,7 +1468,7 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 					statsArray[11]++;
 
 				ret = helpMerge((MergeRevision<K, V>) head);
-				break outer;
+				break;
 			}
 
 			if (head.effectiveVersion() < 0 && head != terminator) {
@@ -1595,7 +1492,7 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 				tryReduceLevel();
 
 				ret = terminator.effectiveVersion();
-				break outer;
+				break;
 			}
 
 			if (bb.acquireNext() != b) {
@@ -1619,7 +1516,7 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 			Batch<K, V> batch = terminator.descriptor.batch;
 			if (batch == null) {
 				ret = terminator.descriptor.acquireVersion();
-				break outer;
+				break;
 			}
 
 			int indexOfRightmostRelevantBatchKey = terminator.indexOfLeftmostRelevantBatchKey - 1;
@@ -1627,12 +1524,12 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 			MultiValIndices<K> headIndices = head.getValue().indexOfKeysInMultiVal(batch,
 					indexOfRightmostRelevantBatchKey, bb.key);
 
-			MultiVal<K, V> mval = new SingleMultiVal<K, V>(comparator, batch, head.getValue(),
+			MultiVal<K, V> mval = new SingleMultiVal<>(comparator, batch, head.getValue(),
 					terminator.next.getValue(), headIndices, terminatorIndices);
 
 			assert version < 0;
 
-			int indexOfFirstRelevantKeyInBatch = 0;
+			int indexOfFirstRelevantKeyInBatch;
 			if (headIndices.indices.length == 0)
 				indexOfFirstRelevantKeyInBatch = terminator.indexOfLeftmostRelevantBatchKey;
 			else
@@ -1649,7 +1546,7 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 					statsArray[16]++;
 
 				ret = helpMerge(mergeRevision);
-				break outer;
+				break;
 			}
 			bb = null;
 		}
@@ -1663,7 +1560,7 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 		Node<K, V> tn = terminator.node;
 		Node<K, V> b;
 
-		MergeRevision<K, V> ret = null;
+		MergeRevision<K, V> ret;
 
 		long[] statsArray = null;
 		if (STATISTICS)
@@ -1680,11 +1577,11 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 			b = findPredecessor(tn.key, cmp);
 
 			assert b != null; // because we have at least one MultiVal
-			Node<K, V> n = null;
+			Node<K, V> n;
 			for (;;) { // find insertion point
 				if (STATISTICS)
 					statsArray[1]++;
-				int c = 0;
+				int c;
 				n = b.next;
 
 				K k = n != null ? n.key : null;
@@ -1787,7 +1684,7 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 		Comparator<? super K> cmp = comparator;
 		outer: for (;;) {
 			if (terminator.descriptor.acquireVersion() > 0 && !primaryRun)
-				break outer;
+				break;
 
 			if (STATISTICS)
 				statsArray[0]++;
@@ -1796,11 +1693,11 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 			b = findPredecessor(tn.key, cmp);
 
 			assert b != null; // because we have at least one MultiVal
-			Node<K, V> n = null;
+			Node<K, V> n;
 			for (;;) { // find insertion point
 				if (STATISTICS)
 					statsArray[1]++;
-				int c = 0;
+				int c;
 				n = b.next;
 
 				K k = n != null ? n.key : null;
@@ -1881,9 +1778,6 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 	 * Main insertion method for batches. Adds element if not present, or replaces
 	 * value if present and onlyIfAbsent is false.
 	 *
-	 * @param key          the key
-	 * @param value        the value that must be associated with key
-	 * @param onlyIfAbsent if should not insert if already present
 	 * @return the newly inserted revision
 	 */
 	private Revision<K, V> doPutBatch(BatchDescriptor<K, V> descriptor, int indexOfFirstKeyFromRight,
@@ -1903,7 +1797,7 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 		K key = firstKeyFromRight;
 
 		Comparator<? super K> cmp = comparator;
-		Revision<K, V> revision = new Revision<K, V>(null, -optimisticVersion, descriptor, null, -1,
+		Revision<K, V> revision = new Revision<>(null, -optimisticVersion, descriptor, null, -1,
 				indexOfFirstKeyFromRight, firstKeyFromRight, null, null);
 
 		outer: for (;;) {
@@ -1940,7 +1834,7 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 
 			assert b != null; // because we have at least one MultiVal
 			Node<K, V> n;
-			insertionPoint: for (;;) { // find insertion point
+			for (; ; ) { // find insertion point
 				if (STATISTICS)
 					statsArray[1]++;
 
@@ -1981,7 +1875,7 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 						if (STATISTICS)
 							statsArray[4]++;
 
-						continue insertionPoint;
+						continue;
 					}
 
 					if (head.descriptor == descriptor) {
@@ -2000,14 +1894,14 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 							statsArray[6]++;
 
 						helpPut(head);
-						continue insertionPoint;
+						continue;
 					}
 
 					if (b.acquireNext() != n) {
 						if (STATISTICS)
 							statsArray[7]++;
 
-						continue insertionPoint;
+						continue;
 					}
 
 					if (currentVersion > 0) {
@@ -2032,7 +1926,7 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 							* indicesAndEndSize.indices.length / batch.size());
 					double[] newAutoscaleParam = newAutoscaleParamForUpdates(head.getAutoscaleParam(), delta);
 
-					int updateType = whatUpdate(indicesAndEndSize.endSize, newAutoscaleParam, head);
+					int updateType = whatUpdate(indicesAndEndSize.endSize, newAutoscaleParam);
 					if (updateType == -1 && b.key == null)
 						updateType = 0;
 
@@ -2053,19 +1947,17 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 							ret = revision;
 							break outer;
 						}
-						continue insertionPoint;
 					} else if (updateType == 1) {
 						if (STATISTICS)
 							statsArray[10]++;
 
-						Pair<MultiVal<K, V>, MultiVal<K, V>> mvalPair = head.getValue().addAndSplit(batch,
-								indicesAndEndSize);
-						SplitRevision<K, V> leftRevision = new SplitRevision<>(mvalPair.first, revision.version,
+						DoubleMultiVal<K, V> mvalPair = head.getValue().addAndSplit(batch, indicesAndEndSize);
+						SplitRevision<K, V> leftRevision = new SplitRevision<>(mvalPair.left, revision.version,
 								descriptor, b.key, indicesAndEndSize.indexOfFirstRelevantKeyInBatch,
 								indexOfFirstKeyFromRight, null, // revision.rightmostRelevantBatchKey,
 								head, indicesAndEndSize, true);
-						SplitRevision<K, V> rightRevision = new SplitRevision<>(mvalPair.second, revision.version,
-								descriptor, mvalPair.second.firstKey(),
+						SplitRevision<K, V> rightRevision = new SplitRevision<>(mvalPair.right, revision.version,
+								descriptor, mvalPair.right.firstKey(),
 								indicesAndEndSize.indexOfFirstRelevantKeyInBatch, indexOfFirstKeyFromRight, null, // revision.rightmostRelevantBatchKey,
 								head, null, false);
 						leftRevision.sibling = rightRevision;
@@ -2079,7 +1971,7 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 
 
 						if (!b.tryPutRevisionSingle(leftRevision))
-							continue insertionPoint; // retry 
+							continue; // retry
 
 						if (SPLIT_MERGE_STATISTICS)
 							splitCounter.set(splitCounter.get() + 1);
@@ -2096,7 +1988,7 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 
 						MergeTerminatorRevision<K, V> mergeTerminator = new MergeTerminatorRevision<>(revision.version,
 								descriptor, b.key, indicesAndEndSize.indexOfFirstRelevantKeyInBatch,
-								indexOfFirstKeyFromRight, null, 
+								indexOfFirstKeyFromRight, null,
 								b, head, indicesAndEndSize);
 						mergeTerminator.setAutoscaleParam(newAutoscaleParam);
 						if (b.tryPutRevisionSingle(mergeTerminator)) {
@@ -2233,11 +2125,11 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 	 * 
 	 * @return first node or null if empty
 	 */
-	final Quad<Node<K, V>, Revision<K, V>, Integer, Node<K, V>> findFirst() {
+	final NodeWithContext<K,V> findFirst() {
 		return findFirst(NEWEST_VERSION);
 	}
 
-	final Quad<Node<K, V>, Revision<K, V>, Integer, Node<K, V>> findFirst(long version) {
+	final NodeWithContext<K,V> findFirst(long version) {
 		Node<K, V> n = baseHead();
 		while (true) {
 			if (n == null)
@@ -2245,7 +2137,7 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 
 			Node<K, V> nNext = n.acquireNext();
 
-			Revision<K, V> head = null;
+			Revision<K, V> head;
 			if (n.getType() == Node.TEMP_SPLIT) {
 				head = ((TempSplitNode<K, V>) n).leftRevision;
 				Node<K, V> leftNode = ((SplitRevision<K, V>) head).node;
@@ -2268,7 +2160,7 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 
 			Revision<K, V> revision = retrieveRevision(n, null, version, head);
 			if (revision != null && revision.getValue().firstValue() != null)
-				return new Quad<>(n, revision, 0, nNext);
+				return new NodeWithContext<>(n, revision, 0, nNext);
 
 			n = nNext;
 		}
@@ -2334,21 +2226,21 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 	 * 
 	 * @return last node or null if empty
 	 */
-	final Quad<Node<K, V>, Revision<K, V>, Integer, Node<K, V>> findLast() {
+	final NodeWithContext<K,V> findLast() {
 		return findLast(NEWEST_VERSION);
 	}
 
-	final Quad<Node<K, V>, Revision<K, V>, Integer, Node<K, V>> findLast(long version) {
+	final NodeWithContext<K,V> findLast(long version) {
 		Node<K, V> b = baseHead();
 		Node<K, V> bNext = null;
 		Revision<K, V> bHead = null;
 
-		outer: for (;;) {
+		for (; ; ) {
 			Index<K, V> q;
 			VarHandle.acquireFence();
 			if ((q = head) == null)
 				break;
-			for (Index<K, V> r, d;;) {
+			for (Index<K, V> r, d; ; ) {
 				while ((r = q.right) != null) {
 					Node<K, V> p;
 					if ((p = r.node) == null || p.isTerminated())
@@ -2364,13 +2256,10 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 				}
 			}
 			if (b != null) {
-				for (;;) {
+				for (; ; ) {
 					Node<K, V> n;
 					if ((n = b.next) == null) {
-						if (b.key == null) // empty
-							break;
-						else
-							break;
+						break;
 					} else if (n.isTerminated())
 						unlinkNode(b, n);
 					else
@@ -2389,24 +2278,32 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 						b.terminate();
 						unlinkNode(leftNode, b);
 					}
-					continue outer;
+					continue;
 				}
 				b = leftNode;
 			} else if ((bHead = b.acquireRevisionHead()).getType() == Revision.MERGE_TERMINATOR) {
 				helpMergeTerminator((MergeTerminatorRevision<K, V>) bHead);
 				cleanTerminatedNode(b.key);
-				continue outer;
+				continue;
 			}
 
 			break;
 		}
 
-		var triple = new Triple<>(b, retrieveRevision(b, null, version, bHead), 0);
-		if (triple != null && triple.second != null) {
-			MultiVal<K, V> mval = triple.second.getValue();
+//		var triple = new Triple<>(b, retrieveRevision(b, null, version, bHead), 0);
+//		if (triple != null && triple.second != null) {
+//			MultiVal<K, V> mval = triple.second.getValue();
+//			if (mval.size() > 0) {
+//				// TODO we create an object because triple has final fields
+//				return new Quad<>(triple.first, triple.second, mval.size() - 1, bNext);
+//			}
+//		}
+
+		Revision<K,V> bRet = retrieveRevision(b, null, version, bHead);
+		if (bRet != null) {
+			MultiVal<K, V> mval = bRet.getValue();
 			if (mval.size() > 0) {
-				// TODO we create an object because triple has final fields
-				return new Quad<>(triple.first, triple.second, mval.size() - 1, bNext);
+				return new NodeWithContext<>(b, bRet, mval.size() - 1, bNext);
 			}
 		}
 
@@ -2519,7 +2416,7 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 	 * @param rel the relation -- OR'ed combination of EQ, LT, GT
 	 * @return nearest node fitting relation, or null if no such
 	 */
-	final Quad<Node<K, V>, Revision<K, V>, Integer, Node<K, V>> findNear(K key, int rel, Comparator<? super K> cmp,
+	final NodeWithContext<K,V> findNear(K key, int rel, Comparator<? super K> cmp,
 			long version) {
 		if (key == null)
 			throw new NullPointerException();
@@ -2528,7 +2425,7 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 		if (STATISTICS)
 			statsArray = new long[5];
 
-		Quad<Node<K, V>, Revision<K, V>, Integer, Node<K, V>> ret = null;
+		NodeWithContext<K,V> ret = null;
 
 		Node<K, V> b, n, bb, nNext;
 		K searchKey = key;
@@ -2603,13 +2500,13 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 
 					if (index >= 0) {
 						if ((rel & EQ) != 0) {
-							ret = new Quad<>(n, revision, index, nNext);
+							ret = new NodeWithContext<>(n, revision, index, nNext);
 							break outer;
 						}
 
 						if ((rel & LT) != 0) {
 							if (index >= 1) {
-								ret = new Quad<>(n, revision, index - 1, nNext);
+								ret = new NodeWithContext<>(n, revision, index - 1, nNext);
 								break outer;
 							} else {
 								if (n.key == null) {
@@ -2619,7 +2516,7 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 							}
 						} else {
 							if (index < mvalSize - 1) {
-								ret = new Quad<>(n, revision, index + 1, nNext);
+								ret = new NodeWithContext<>(n, revision, index + 1, nNext);
 								break outer;
 							}
 						}
@@ -2628,7 +2525,7 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 
 						if ((rel & LT) != 0) {
 							if (insPoint >= 1) {
-								ret = new Quad<>(n, revision, insPoint - 1, nNext);
+								ret = new NodeWithContext<>(n, revision, insPoint - 1, nNext);
 								break outer;
 							} else {
 								if (n.key == null) {
@@ -2638,7 +2535,7 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 							}
 						} else {
 							if (insPoint < mvalSize) {
-								ret = new Quad<>(n, revision, insPoint, nNext);
+								ret = new NodeWithContext<>(n, revision, insPoint, nNext);
 								break outer;
 							}
 						}
@@ -2684,12 +2581,12 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 
 	final Map.Entry<K, V> findNearEntry(K key, int rel, Comparator<? super K> cmp, long version) {
 		for (;;) {
-			Quad<Node<K, V>, Revision<K, V>, Integer, Node<K, V>> t;
+			NodeWithContext<K,V> t;
 			if ((t = findNear(key, rel, cmp, version)) == null)
 				return null;
-			if (t.first.isTerminated())
+			if (t.node.isTerminated())
 				continue;
-			return t.second.getValue().getByIndex(t.third);
+			return t.revision.getValue().getByIndex(t.index);
 		}
 	}
 
@@ -2713,7 +2610,7 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 		this.MIN_MULTIVAL_SIZE = minMultivalSize;
 		this.comparator = null;
 		initializeHead();
-		System.err.println(String.format("Jiffy(%d, %d)", MAX_MULTIVAL_SIZE, MIN_MULTIVAL_SIZE));
+		System.err.format("Jiffy(%d, %d)%n", MAX_MULTIVAL_SIZE, MIN_MULTIVAL_SIZE);
 	}
 
 	/**
@@ -2905,14 +2802,6 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 		return (v = doGet(key, version)) == null ? defaultValue : v;
 	}
 
-	static ThreadLocal<Long> lastVersion = new ThreadLocal<>() {
-		@Override
-		protected Long initialValue() {
-			return 0l; // (long)
-						// CURRENT_VERSION.getAcquire(this);
-		}
-	};
-
 	/**
 	 * Associates the specified value with the specified key in this map. If the map
 	 * previously contained a mapping for the key, the old value is replaced.
@@ -2930,11 +2819,11 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 			throw new NullPointerException();
 
 		long optimisticVersion = getCurrentVersion() + 1;
-		Triple<Revision<K, V>, Revision<K, V>, Integer> triple = doPutSingle(key, value, optimisticVersion, false);
+		NewRevisionWithContext<K,V> revisionWithContext = doPutSingle(key, value, optimisticVersion);
 
-		Revision<K, V> revision = triple.first;
-		Revision<K, V> next = triple.second;
-		Integer indexInNext = triple.third;
+		Revision<K, V> revision = revisionWithContext.revision;
+		Revision<K, V> next = revisionWithContext.head;
+		int indexInNext = revisionWithContext.index;
 
 		V ret = (next != null && indexInNext >= 0) ? next.getValue().getValueByIndex(indexInNext) : null;
 
@@ -3005,7 +2894,6 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 					}
 
 					ret = true;
-					break outer;
 				}
 			}
 		}
@@ -3024,13 +2912,10 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 		if (candidate.descriptor != null && !candidate.descriptor.isFinished())
 			return false;
 
-		boolean ret = true;
-		if (!doGcInner(candidate, candidate.next, true, statsArray))
-			ret = false;
+		boolean ret = doGcInner(candidate, candidate.next, true, statsArray);
 
-		MergeRevision<K, V> mergeRevision = null;
 		if (candidate.getType() == Revision.MERGE) {
-			mergeRevision = (MergeRevision<K, V>) candidate;
+			MergeRevision<K, V> mergeRevision = (MergeRevision<K, V>) candidate;
 			if (!doGcInner(candidate, mergeRevision.rightNext, false, null) || !mergeRevision.acquireReadyToGC())
 				ret = false;
 		}
@@ -3079,7 +2964,7 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 		long optimisticVersion = getCurrentVersion() + 1;
 		BatchDescriptor<K, V> descriptor = new BatchDescriptor<>(batch, optimisticVersion);
 
-		long finalVersion = helpBatchPrimaryRun(descriptor, batch.lastKey(), revisions);
+		long finalVersion = helpBatchPrimaryRun(descriptor, revisions);
 		descriptor.finish();
 
 		descriptor.batch = null;
@@ -3107,16 +2992,14 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 	void publishVersion(long finalVersion) {
 		if (USE_TSC) {
 			int counter = 0;
-			while (true) {
-				if (finalVersion <= getCurrentVersion())
-					break;
+			while (finalVersion > getCurrentVersion()) {
 				counter++;
 				if (counter % 5 == 0)
 					Thread.yield();
 			}
 		} else {
 
-			int i = 0;
+			int i;
 			for (i = 0; i < 5; i++) {
 				if (finalVersion <= getCurrentVersion()) {
 					break;
@@ -3181,28 +3064,27 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 
 		int type = revision.getType();
 		switch (type) {
-		case Revision.SPLIT:
-			finalVersion = helpSplit((SplitRevision<K, V>) revision);
-			assert revision.acquireVersion() > 0;
-			break;
-		case Revision.MERGE:
-			finalVersion = helpMerge((MergeRevision<K, V>) revision);
-			assert revision.acquireVersion() > 0;
-			break;
-		case Revision.MERGE_TERMINATOR:
-			finalVersion = helpMergeTerminator((MergeTerminatorRevision<K, V>) revision);
-			break;
-		default:
-			long currentVersion = getCurrentVersion();
-			if (currentVersion < -finalVersion)
-				publishVersion(currentVersion);
-			finalVersion = revision.trySetVersion(currentVersion);
+			case Revision.SPLIT -> {
+				finalVersion = helpSplit((SplitRevision<K, V>) revision);
+				assert revision.acquireVersion() > 0;
+			}
+			case Revision.MERGE -> {
+				finalVersion = helpMerge((MergeRevision<K, V>) revision);
+				assert revision.acquireVersion() > 0;
+			}
+			case Revision.MERGE_TERMINATOR -> finalVersion = helpMergeTerminator((MergeTerminatorRevision<K, V>) revision);
+			default -> {
+				long currentVersion = getCurrentVersion();
+				if (currentVersion < -finalVersion)
+					publishVersion(currentVersion);
+				finalVersion = revision.trySetVersion(currentVersion);
+			}
 		}
 
 		return finalVersion;
 	}
 
-	private void extractWitnessValues(Batch<K, V> batch, Revision<K, V> revision, BatchDescriptor<K, V> descriptor) {
+	private void extractWitnessValues(Batch<K, V> batch, Revision<K, V> revision) {
 		MultiValIndices<K> indices = revision.nextIndices;
 		MultiVal<K, V> nextMval = revision.next.getValue();
 
@@ -3227,8 +3109,8 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 			MergeRevision<K, V> mergeRevision = (MergeRevision<K, V>) revision;
 			MergeTerminatorRevision<K, V> terminatorRevision = mergeRevision.mergeTerminator;
 
-			extractWitnessValues(batch, terminatorRevision, descriptor);
-			extractWitnessValues(batch, mergeRevision, descriptor);
+			extractWitnessValues(batch, terminatorRevision);
+			extractWitnessValues(batch, mergeRevision);
 
 			mergeRevision.setReadyToGC();
 		} else if (type == Revision.SPLIT) {
@@ -3238,22 +3120,20 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 			SplitRevision<K, V> splitRevision = (SplitRevision<K, V>) revision;
 			if (splitRevision.left) {
 				leftRevision = splitRevision;
-				rightRevision = leftRevision.sibling;
 			} else {
 				rightRevision = splitRevision;
 				leftRevision = rightRevision.sibling;
 			}
 
-			extractWitnessValues(batch, leftRevision, descriptor);
+			extractWitnessValues(batch, leftRevision);
 		} else if (type == Revision.REGULAR) {
-			extractWitnessValues(batch, revision, descriptor);
+			extractWitnessValues(batch, revision);
 		} else {
 			throw new JiffyInternalException("wrong revision type");
 		}
 	}
 
-	private long helpBatchPrimaryRun(BatchDescriptor<K, V> descriptor, K firstRelevantKeyFromRight,
-			List<Revision<K, V>> revisions) {
+	private long helpBatchPrimaryRun(BatchDescriptor<K, V> descriptor, List<Revision<K, V>> revisions) {
 
 		long optimisticVersion = -1 * descriptor.acquireVersion();
 
@@ -3315,7 +3195,7 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 			return descriptor.acquireVersion();
 
 		boolean setFinalVersion = true;
-		long version = 0;
+		long version;
 
 		// for autoscaler only
 		long optimisticVersion = descriptor.acquireVersion();
@@ -3346,7 +3226,7 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 
 				if (currentRevision == null) {
 					setFinalVersion = false;
-					version = descriptor.acquireVersion();
+					descriptor.acquireVersion();
 					break;
 				}
 
@@ -3371,10 +3251,9 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 				long currentVersion = getCurrentVersion();
 				if (optimisticVersion != 0 && currentVersion < optimisticVersion)
 					publishVersion(currentVersion);
-				version = descriptor.trySetVersion(currentVersion);
+				descriptor.trySetVersion(currentVersion);
 			}
-		} else
-			version = descriptor.acquireVersion();
+		}
 
 		version = descriptor.acquireVersion();
 
@@ -3395,33 +3274,28 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 		int type = revision.getType();
 
 		switch (type) {
-		case Revision.REGULAR: {
-			ret = revision;
-			break;
-		}
-		case Revision.SPLIT: {
-			SplitRevision<K, V> splitRevision = (SplitRevision<K, V>) revision;
-			helpSplit(splitRevision);
-			ret = splitRevision.left ? splitRevision : splitRevision.sibling;
-			break;
-		}
-		case Revision.MERGE: {
-			helpMerge((MergeRevision<K, V>) revision);
-			ret = revision;
-			break;
-		}
-		case Revision.MERGE_TERMINATOR:
-			MergeTerminatorRevision<K, V> terminator = (MergeTerminatorRevision<K, V>) revision;
-			helpMergeTerminator((MergeTerminatorRevision<K, V>) revision);
-			MergeRevision<K, V> mergeRevision = null;
-			long version = revision.descriptor.acquireVersion();
-			if (version < 0 || primaryRun) {
-				mergeRevision = findMergeRevisionBatch(terminator, primaryRun);
-				if (mergeRevision != null && version < 0)
-					helpMerge(mergeRevision);
+			case Revision.REGULAR -> ret = revision;
+			case Revision.SPLIT -> {
+				SplitRevision<K, V> splitRevision = (SplitRevision<K, V>) revision;
+				helpSplit(splitRevision);
+				ret = splitRevision.left ? splitRevision : splitRevision.sibling;
 			}
-			ret = mergeRevision;
-			break;
+			case Revision.MERGE -> {
+				helpMerge((MergeRevision<K, V>) revision);
+				ret = revision;
+			}
+			case Revision.MERGE_TERMINATOR -> {
+				MergeTerminatorRevision<K, V> terminator = (MergeTerminatorRevision<K, V>) revision;
+				helpMergeTerminator((MergeTerminatorRevision<K, V>) revision);
+				MergeRevision<K, V> mergeRevision = null;
+				long version = revision.descriptor.acquireVersion();
+				if (version < 0 || primaryRun) {
+					mergeRevision = findMergeRevisionBatch(terminator, primaryRun);
+					if (mergeRevision != null && version < 0)
+						helpMerge(mergeRevision);
+				}
+				ret = mergeRevision;
+			}
 		}
 		// return leftmostKey;
 		return ret;
@@ -3429,18 +3303,19 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 
 	/******/
 
-	private Triple<Revision<K, V>, Revision<K, V>, Integer> doRemoveSingle(K key, long optimisticVersion) {
-		if (head != null && key == null)
+	private NewRevisionWithContext<K, V> doRemoveSingle(K key, long optimisticVersion) {
+		if (head != null && key == null) {
 			throw new NullPointerException();
+		}
 
-		Triple<Revision<K, V>, Revision<K, V>, Integer> ret = null;
+		NewRevisionWithContext<K,V> ret;
 
 		long[] statsArray = null;
 		if (STATISTICS)
 			statsArray = new long[10];
 
 		Comparator<? super K> cmp = comparator;
-		Revision<K, V> revision = new Revision<K, V>(null, -optimisticVersion, null);
+		Revision<K, V> revision = new Revision<>(null, -optimisticVersion, null);
 
 		outer: for (;;) {
 			if (STATISTICS)
@@ -3509,13 +3384,13 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 							statsArray[4]++;
 
 						helpPut(head);
-						continue insertionPoint;
+						continue;
 					}
 
 					if (b.acquireNext() != n) {
 						if (STATISTICS)
 							statsArray[5]++;
-						continue insertionPoint;
+						continue;
 					}
 
 					MultiVal<K, V> headMval = head.getValue();
@@ -3523,7 +3398,7 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 					if (index < 0) {
 						if (STATISTICS)
 							statsArray[6]++;
-						ret = new Triple<>(null, head, index);
+						ret = new NewRevisionWithContext<>(null, head, index);
 						break outer;
 					}
 
@@ -3531,7 +3406,7 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 					double[] newAutoscaleParam = newAutoscaleParamForUpdates(head.getAutoscaleParam(), delta);
 
 					int endSize = headMval.size() - 1;
-					if (b == h.node || whatUpdate(endSize, newAutoscaleParam, head) != -1) {
+					if (b == h.node || whatUpdate(endSize, newAutoscaleParam) != -1) {
 						if (STATISTICS)
 							statsArray[7]++;
 						// TODO if base node we sometimes can unnecessarily put a new empty revision
@@ -3543,7 +3418,7 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 						revision.setAutoscaleParam(newAutoscaleParam);
 
 						if (b.tryPutRevisionSingle(revision)) {
-							ret = new Triple<>(revision, head, index);
+							ret = new NewRevisionWithContext<>(revision, head, index);
 							break outer;
 						}
 						continue insertionPoint;
@@ -3558,7 +3433,7 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 							// optimization
 							Revision<K, V> newHead = b.acquireRevisionHead();
 							if (newHead != head)
-								continue insertionPoint;
+								continue;
 						}
 
 						MergeTerminatorRevision<K, V> mergeTerminator = new MergeTerminatorRevision<>(revision.version,
@@ -3570,7 +3445,7 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 								mergeCounter.set(mergeCounter.get() + 1);
 
 							helpMergeTerminator(mergeTerminator);
-							ret = new Triple<>(mergeTerminator, head, index); // not returning the true merge revision!
+							ret = new NewRevisionWithContext<>(mergeTerminator, head, index); // not returning the true merge revision!
 							break outer;
 						}
 						// carries on, i.e., continue insertionPoint
@@ -3608,11 +3483,11 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 
 		long optimisticVersion = getCurrentVersion() + 1;
 
-		Triple<Revision<K, V>, Revision<K, V>, Integer> triple = doRemoveSingle(cKey, optimisticVersion);
+		NewRevisionWithContext<K,V> revisionWithContext = doRemoveSingle(cKey, optimisticVersion);
 
-		Revision<K, V> revision = triple.first;
-		Revision<K, V> next = triple.second;
-		Integer indexInNext = triple.third;
+		Revision<K, V> revision = revisionWithContext.revision;
+		Revision<K, V> next = revisionWithContext.head;
+		int indexInNext = revisionWithContext.index;
 
 		V ret = (next != null && indexInNext >= 0) ? next.getValue().getValueByIndex(indexInNext) : null;
 
@@ -3626,11 +3501,10 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 			long gcNum = getGcNum(finalVersion);
 			doGc(next, next.acquireNext(), gcNum, true);
 		} else if (revision.getType() == Revision.MERGE_TERMINATOR) {
-			// A tombstone was already present or we had to put a MergeTerminator
+			// A tombstone was already present, or we had to put a MergeTerminator
 			// and we don't have the true MergeRevision. But the MergeRevision will be
 			// with the same optimisticVersion as the MergeTerminatorRevision.
 			MergeTerminatorRevision<K, V> terminatorRevision = (MergeTerminatorRevision<K, V>) revision;
-			Revision<K, V> terminatorNext = next;
 
 			MergeRevision<K, V> mergeRevision = findMergeRevisionSingle(terminatorRevision, 0);
 			mergeRevision.setReadyToGC();
@@ -3639,13 +3513,14 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 
 			finalVersion = mergeRevision.acquireVersion();
 
+			assert next != null;
 			if (next.descriptor != null && !next.descriptor.isFinished()) {
 				return ret;
 			}
 
 			long gcNum = getGcNum(finalVersion);
 			doGc(mergeRevision, mergeRevisionNext, gcNum, true);
-			doGc(mergeRevision, terminatorNext, gcNum, false);
+			doGc(mergeRevision, next, gcNum, false);
 		} else { // a tombstone or a just reduced mval was created
 			finalVersion = helpSingle(revision);
 
@@ -3903,7 +3778,7 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 	 * Returns a {@link Collection} view of the values contained in this map.
 	 * <p>
 	 * The collection's iterator returns the values in ascending order of the
-	 * corresponding keys. The collections's spliterator additionally reports
+	 * corresponding keys. The collection's spliterator additionally reports
 	 * {@link Spliterator#CONCURRENT}, {@link Spliterator#NONNULL} and
 	 * {@link Spliterator#ORDERED}, with an encounter order that is ascending order
 	 * of the corresponding keys.
@@ -3953,11 +3828,11 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 	 *         key order
 	 */
 	public Set<Map.Entry<K, V>> entrySet() {
-		return new EntrySet<K, V>(this);
+		return new EntrySet<>(this);
 	}
 
 	public MultiversionNavigableMap<K, V> descendingMap() {
-		return new SubMap<K, V>(this, null, false, null, false, true, null);
+		return new SubMap<>(this, null, false, null, false, true, null);
 	}
 
 	public NavigableSet<K> descendingKeySet() {
@@ -4130,10 +4005,10 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 	}
 
 	private K firstKey(long version) {
-		Quad<Node<K, V>, Revision<K, V>, Integer, Node<K, V>> t = findFirst(version);
+		NodeWithContext<K,V> t = findFirst(version);
 		if (t == null)
 			throw new NoSuchElementException();
-		return t.second.getValue().firstKey();
+		return t.revision.getValue().firstKey();
 	}
 
 	/**
@@ -4144,14 +4019,14 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 	}
 
 	public K lastKey(long version) {
-		Quad<Node<K, V>, Revision<K, V>, Integer, Node<K, V>> t = findLast(version);
+		NodeWithContext<K,V> t = findLast(version);
 		if (t == null)
 			throw new NoSuchElementException();
-		return t.second.getValue().lastKey();
+		return t.revision.getValue().lastKey();
 	}
 
 	public MultiversionNavigableMap<K, V> subMap() {
-		return new SubMap<K, V>(this, null, false, null, false, false, null);
+		return new SubMap<>(this, null, false, null, false, false, null);
 	}
 
 	/**
@@ -4162,7 +4037,7 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 	public MultiversionNavigableMap<K, V> subMap(K fromKey, boolean fromInclusive, K toKey, boolean toInclusive) {
 		if (fromKey == null || toKey == null)
 			throw new NullPointerException();
-		return new SubMap<K, V>(this, fromKey, fromInclusive, toKey, toInclusive, false, null);
+		return new SubMap<>(this, fromKey, fromInclusive, toKey, toInclusive, false, null);
 	}
 
 	/**
@@ -4173,7 +4048,7 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 	public MultiversionNavigableMap<K, V> headMap(K toKey, boolean inclusive) {
 		if (toKey == null)
 			throw new NullPointerException();
-		return new SubMap<K, V>(this, null, false, toKey, inclusive, false, null);
+		return new SubMap<>(this, null, false, toKey, inclusive, false, null);
 	}
 
 	/**
@@ -4184,7 +4059,7 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 	public MultiversionNavigableMap<K, V> tailMap(K fromKey, boolean inclusive) {
 		if (fromKey == null)
 			throw new NullPointerException();
-		return new SubMap<K, V>(this, fromKey, inclusive, null, false, false, null);
+		return new SubMap<>(this, fromKey, inclusive, null, false, false, null);
 	}
 
 	/**
@@ -4241,8 +4116,8 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 	}
 
 	private K lowerKey(K key, long version) {
-		Quad<Node<K, V>, Revision<K, V>, Integer, Node<K, V>> t = findNear(key, LT, comparator, version);
-		return (t == null) ? null : t.second.getValue().getKeyByIndex(t.third);
+		NodeWithContext<K,V> t = findNear(key, LT, comparator, version);
+		return (t == null) ? null : t.revision.getValue().getKeyByIndex(t.index);
 	}
 
 	/**
@@ -4272,8 +4147,8 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 	}
 
 	private K floorKey(K key, long version) {
-		Quad<Node<K, V>, Revision<K, V>, Integer, Node<K, V>> t = findNear(key, LT | EQ, comparator, version);
-		return (t == null) ? null : t.second.getValue().getKeyByIndex(t.third);
+		NodeWithContext<K, V> t = findNear(key, LT | EQ, comparator, version);
+		return (t == null) ? null : t.revision.getValue().getKeyByIndex(t.index);
 	}
 
 	/**
@@ -4301,8 +4176,8 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 	}
 
 	private K ceilingKey(K key, long version) {
-		Quad<Node<K, V>, Revision<K, V>, Integer, Node<K, V>> t = findNear(key, GT | EQ, comparator, version);
-		return (t == null) ? null : t.second.getValue().getKeyByIndex(t.third);
+		NodeWithContext<K,V> t = findNear(key, GT | EQ, comparator, version);
+		return (t == null) ? null : t.revision.getValue().getKeyByIndex(t.index);
 	}
 
 	/**
@@ -4332,8 +4207,8 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 	}
 
 	private K higherKey(K key, long version) {
-		Quad<Node<K, V>, Revision<K, V>, Integer, Node<K, V>> t = findNear(key, GT, comparator, version);
-		return (t == null) ? null : t.second.getValue().getKeyByIndex(t.third);
+		NodeWithContext<K,V> t = findNear(key, GT, comparator, version);
+		return (t == null) ? null : t.revision.getValue().getKeyByIndex(t.index);
 	}
 
 	/**
@@ -4448,7 +4323,7 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 //			K k;
 //			if ((n = lastReturned) == null || (k = n.key) == null)
 //				throw new IllegalStateException();
-//			// It would not be worth all of the overhead to directly
+//			// It would not be worth all the overhead to directly
 //			// unlink from here. Using remove is fast enough.
 //			// ConcurrentSkipListMap.this.remove(k);
 //			MvSkipListMap.this.remove(k);
@@ -4506,9 +4381,9 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 	 * methods.
 	 */
 
-	static final <E> List<E> toList(Collection<E> c) {
+	static <E> List<E> toList(Collection<E> c) {
 		// Using size() here would be a pessimization.
-		ArrayList<E> list = new ArrayList<E>();
+		ArrayList<E> list = new ArrayList<>();
 		for (E e : c)
 			list.add(e);
 		return list;
@@ -4520,7 +4395,7 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 
 		KeySet(MultiversionNavigableMap<K, V> map) {
 			if (map instanceof Jiffy)
-				m = (Jiffy<K, V>) map;
+				m = map;
 			else {
 				submap = (SubMap<K, V>) map;
 				m = submap;
@@ -4625,11 +4500,11 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 		}
 
 		public NavigableSet<K> headSet(K toElement, boolean inclusive) {
-			return new KeySet<>((MultiversionNavigableMap<K, V>) m.headMap(toElement, inclusive));
+			return new KeySet<>(m.headMap(toElement, inclusive));
 		}
 
 		public NavigableSet<K> tailSet(K fromElement, boolean inclusive) {
-			return new KeySet<>((MultiversionNavigableMap<K, V>) m.tailMap(fromElement, inclusive));
+			return new KeySet<>(m.tailMap(fromElement, inclusive));
 		}
 
 		public NavigableSet<K> subSet(K fromElement, K toElement) {
@@ -4661,8 +4536,7 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 		}
 
 		public Iterator<V> iterator() {
-			if (m instanceof Jiffy) {
-				Jiffy<K, V> map = (Jiffy<K, V>) m;
+			if (m instanceof Jiffy<K, V> map) {
 				return map.new ValueIterator(map);
 			} else
 				return ((SubMap<K, V>) m).new SubMapValueIterator();
@@ -4736,9 +4610,8 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 		}
 
 		public boolean contains(Object o) {
-			if (!(o instanceof Map.Entry))
+			if (!(o instanceof Entry<?, ?> e))
 				return false;
-			Map.Entry<?, ?> e = (Map.Entry<?, ?>) o;
 			V v = m.get(e.getKey());
 			return v != null && v.equals(e.getValue());
 		}
@@ -4938,24 +4811,24 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 		/**
 		 * Returns true if node key is less than upper bound of range.
 		 */
-		boolean isBeforeEnd(Quad<Node<K, V>, Revision<K, V>, Integer, Node<K, V>> t, Comparator<? super K> cmp) {
+		boolean isBeforeEnd(NodeWithContext<K,V> t, Comparator<? super K> cmp) {
 			if (t == null)
 				return false;
 			if (hi == null)
 				return true;
-			K k = t.second.getValue().getKeyByIndex(t.third);
+			K k = t.revision.getValue().getKeyByIndex(t.index);
 			if (k == null) // pass by markers and headers
 				return true;
 			int c = cpr(cmp, k, hi);
 			return c < 0 || (c == 0 && hiInclusive);
 		}
 
-		boolean debugIsBeforeEnd(Quad<Node<K, V>, Revision<K, V>, Integer, Object> t, Comparator<? super K> cmp) {
+		boolean debugIsBeforeEnd(NodeWithContext<K,V> t, Comparator<? super K> cmp) {
 			if (t == null)
 				return false;
 			if (hi == null)
 				return true;
-			K k = t.second.getValue().getKeyByIndex(t.third);
+			K k = t.revision.getValue().getKeyByIndex(t.index);
 			if (k == null) // pass by markers and headers
 				return true;
 			int c = cpr(cmp, k, hi);
@@ -4963,10 +4836,10 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 		}
 
 		/**
-		 * Returns lowest node. This node might not be in range, so most usages need to
+		 * Returns the lowest node. This node might not be in range, so most usages need to
 		 * check bounds.
 		 */
-		Quad<Node<K, V>, Revision<K, V>, Integer, Node<K, V>> loNode(Comparator<? super K> cmp) {
+		NodeWithContext<K, V> loNode(Comparator<? super K> cmp) {
 			long ver = effectiveVersion();
 			if (lo == null)
 				return m.findFirst(ver);
@@ -4977,10 +4850,10 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 		}
 
 		/**
-		 * Returns highest node. This node might not be in range, so most usages need to
+		 * Returns the highest node. This node might not be in range, so most usages need to
 		 * check bounds.
 		 */
-		Quad<Node<K, V>, Revision<K, V>, Integer, Node<K, V>> hiNode(Comparator<? super K> cmp) {
+		NodeWithContext<K,V> hiNode(Comparator<? super K> cmp) {
 			long ver = effectiveVersion();
 			if (hi == null)
 				return m.findLast(ver);
@@ -4991,25 +4864,25 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 		}
 
 		/**
-		 * Returns lowest absolute key (ignoring directionality).
+		 * Returns the lowest absolute key (ignoring directionality).
 		 */
 		K lowestKey() {
 			Comparator<? super K> cmp = m.comparator;
-			Quad<Node<K, V>, Revision<K, V>, Integer, Node<K, V>> t = loNode(cmp);
+			NodeWithContext<K,V> t = loNode(cmp);
 			if (isBeforeEnd(t, cmp))
-				return t.second.getValue().getKeyByIndex(t.third);
+				return t.revision.getValue().getKeyByIndex(t.index);
 			else
 				throw new NoSuchElementException();
 		}
 
 		/**
-		 * Returns highest absolute key (ignoring directionality).
+		 * Returns the highest absolute key (ignoring directionality).
 		 */
 		K highestKey() {
 			Comparator<? super K> cmp = m.comparator;
-			Quad<Node<K, V>, Revision<K, V>, Integer, Node<K, V>> t = hiNode(cmp);
+			NodeWithContext<K,V> t = hiNode(cmp);
 			if (t != null) {
-				K key = t.second.getValue().getKeyByIndex(t.third);
+				K key = t.revision.getValue().getKeyByIndex(t.index);
 				if (inBounds(key, cmp))
 					return key;
 			}
@@ -5018,25 +4891,20 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 
 		Map.Entry<K, V> lowestEntry() {
 			Comparator<? super K> cmp = m.comparator;
-			for (;;) {
-				Quad<Node<K, V>, Revision<K, V>, Integer, Node<K, V>> n;
-//				V v;
-				if ((n = loNode(cmp)) == null || !isBeforeEnd(n, cmp))
-					return null;
-				else
-					return n.second.getValue().getByIndex(n.third);
-			}
+			NodeWithContext<K,V> n;
+			if ((n = loNode(cmp)) == null || !isBeforeEnd(n, cmp))
+				return null;
+			else
+				return n.revision.getValue().getByIndex(n.index);
 		}
 
 		Map.Entry<K, V> highestEntry() {
 			Comparator<? super K> cmp = m.comparator;
-			for (;;) {
-				Quad<Node<K, V>, Revision<K, V>, Integer, Node<K, V>> n;
-				if ((n = hiNode(cmp)) == null || !inBounds(n.second.getValue().getKeyByIndex(n.third), cmp))
-					return null;
-				else
-					return n.second.getValue().getByIndex(n.third);
-			}
+			NodeWithContext<K,V> n;
+			if ((n = hiNode(cmp)) == null || !inBounds(n.revision.getValue().getKeyByIndex(n.index), cmp))
+				return null;
+			else
+				return n.revision.getValue().getByIndex(n.index);
 		}
 
 		Map.Entry<K, V> removeLowest() {
@@ -5104,32 +4972,30 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 			}
 			if (tooLow(key, cmp)) {
 				if ((rel & LT) == 0) {
-					Quad<Node<K, V>, Revision<K, V>, Integer, Node<K, V>> n = loNode(cmp);
+					NodeWithContext<K,V> n = loNode(cmp);
 					if (isBeforeEnd(n, cmp))
-						return n.second.getValue().getKeyByIndex(n.third);
+						return n.revision.getValue().getKeyByIndex(n.index);
 				}
 				return null;
 			}
 			if (tooHigh(key, cmp)) {
 				if ((rel & LT) != 0) {
-					Quad<Node<K, V>, Revision<K, V>, Integer, Node<K, V>> n = hiNode(cmp);
+					NodeWithContext<K,V> n = hiNode(cmp);
 					if (n != null) {
-						K last = n.second.getValue().getKeyByIndex(n.third);
+						K last = n.revision.getValue().getKeyByIndex(n.index);
 						if (inBounds(last, cmp))
 							return last;
 					}
 				}
 				return null;
 			}
-			for (;;) {
-				Quad<Node<K, V>, Revision<K, V>, Integer, Node<K, V>> n = m.findNear(key, rel, cmp, effectiveVersion());
-				if (n == null)
-					return null;
-				K k = n.second.getValue().getKeyByIndex(n.third);
-				if (!inBounds(k, cmp))
-					return null;
-				return k;
-			}
+			NodeWithContext<K,V> n = m.findNear(key, rel, cmp, effectiveVersion());
+			if (n == null)
+				return null;
+			K k = n.revision.getValue().getKeyByIndex(n.index);
+			if (!inBounds(k, cmp))
+				return null;
+			return k;
 		}
 
 		/* ---------------- Map API methods -------------- */
@@ -5213,10 +5079,9 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 
 			Objects.requireNonNull(action);
 			checkSnapshot();
-			Comparator<? super K> cmp = m.comparator;
 			VarHandle.acquireFence();
 
-			Quad<Node<K, V>, Revision<K, V>, Integer, Node<K, V>> t = loNode(cmp);
+			NodeWithContext<K,V> t = loNode(m.comparator);
 			if (t == null) {
 				if (STATISTICS)
 					m.stats.get().updateSubMapForEach(statsArray);
@@ -5224,11 +5089,11 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 				return;
 			}
 
-			var currentNode = t.first;
-			var currentRevision = t.second;
-			var currentMVal = t.second.getValue();
-			var currentIndex = t.third;
-			var nextNode = t.fourth;
+			var currentNode = t.node;
+			var currentRevision = t.revision;
+			var currentMVal = t.revision.getValue();
+			var currentIndex = t.index;
+			var nextNode = t.nextNode;
 
 			K refKey = null;
 
@@ -5277,13 +5142,13 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 				}
 
 				if (!more)
-					break outer;
+					break;
 
 				while (true) {
 					if (STATISTICS)
 						statsArray[5]++;
 
-					Revision<K, V> head = null;
+					Revision<K, V> head;
 
 					currentNode = nextNode;
 					while (true) {
@@ -5311,7 +5176,7 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 
 							var quad = m.findNear(refKey, GT, comparator(), effectiveVersion());
 							if (quad != null)
-								currentNode = quad.first;
+								currentNode = quad.node;
 							else
 								currentNode = null;
 							continue;
@@ -5320,7 +5185,6 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 						break;
 					}
 
-					assert head != null;
 					currentRevision = m.retrieveRevision(currentNode, null, effectiveVersion(), head);
 					if (currentRevision != null) {
 						if (STATISTICS)
@@ -5420,7 +5284,7 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 						throw new IllegalArgumentException("key out of range");
 				}
 			}
-			return new SubMap<K, V>(m, fromKey, fromInclusive, toKey, toInclusive, isDescending, mySnapshot);
+			return new SubMap<>(m, fromKey, fromInclusive, toKey, toInclusive, isDescending, mySnapshot);
 		}
 
 		@Override
@@ -5468,7 +5332,7 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 		@Override
 		public SubMap<K, V> descendingMap() {
 			checkSnapshot();
-			return new SubMap<K, V>(m, lo, loInclusive, hi, hiInclusive, !isDescending, mySnapshot);
+			return new SubMap<>(m, lo, loInclusive, hi, hiInclusive, !isDescending, mySnapshot);
 		}
 
 		/* ---------------- Relational methods -------------- */
@@ -5580,7 +5444,7 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 		@Override
 		public Set<Map.Entry<K, V>> entrySet() {
 			checkSnapshot();
-			return new EntrySet<K, V>(this);
+			return new EntrySet<>(this);
 		}
 
 		@Override
@@ -5621,13 +5485,13 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 				VarHandle.acquireFence();
 				Comparator<? super K> cmp = m.comparator;
 
-				Quad<Node<K, V>, Revision<K, V>, Integer, Node<K, V>> t;
+				NodeWithContext<K,V> t;
 				if (isDescending) {
 					t = hiNode(cmp);
 					if (t != null) {
-						currentNode = t.first;
-						currentRevision = t.second;
-						currentIterator = t.second.getValue().descendingIterator(t.third);
+						currentNode = t.node;
+						currentRevision = t.revision;
+						currentIterator = t.revision.getValue().descendingIterator(t.index);
 
 						if (!rewindIteratorForwards())
 							descend();
@@ -5637,11 +5501,11 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 				} else {
 					t = loNode(cmp);
 					if (t != null) {
-						currentNode = t.first;
-						currentRevision = t.second;
-						currentIterator = t.second.getValue().iterator(t.third);
+						currentNode = t.node;
+						currentRevision = t.revision;
+						currentIterator = t.revision.getValue().iterator(t.index);
 
-						nextNode = t.fourth;
+						nextNode = t.nextNode;
 						if (!rewindIteratorForwards())
 							ascend();
 						if (nextEntry != null && tooHigh(nextEntry.getKey(), m.comparator))
@@ -5733,7 +5597,7 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 							break outer;
 						}
 
-						Revision<K, V> head = null;
+						Revision<K, V> head;
 
 						currentNode = nextNode;
 						while (true) {
@@ -5767,7 +5631,7 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 
 								var quad = m.findNear(refKey, GT, comparator(), effectiveVersion());
 								if (quad != null)
-									currentNode = quad.first;
+									currentNode = quad.node;
 								else
 									currentNode = null;
 								continue;
@@ -5776,7 +5640,6 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 							break;
 						}
 
-						assert head != null;
 						currentRevision = m.retrieveRevision(currentNode, null, effectiveVersion(), head);
 						if (currentRevision != null) {
 							if (STATISTICS)
@@ -5832,9 +5695,9 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 							break outer;
 						}
 
-						currentNode = t.first;
-						currentRevision = t.second;
-						currentIterator = currentRevision.getValue().descendingIterator(t.third);
+						currentNode = t.node;
+						currentRevision = t.revision;
+						currentIterator = currentRevision.getValue().descendingIterator(t.index);
 					}
 				}
 
@@ -5916,7 +5779,7 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 			}
 
 			@Override
-			public final Comparator<? super K> getComparator() {
+			public Comparator<? super K> getComparator() {
 				checkSnapshot();
 				return SubMap.this.comparator();
 			}
@@ -5970,7 +5833,7 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 		@Override
 		public MultiversionNavigableMapSnapshot<K, V> snapshot(long version) {
 			checkSnapshot();
-			var subMap = new SubMap<K, V>(m, lo, loInclusive, hi, hiInclusive, isDescending, version);
+			var subMap = new SubMap<>(m, lo, loInclusive, hi, hiInclusive, isDescending, version);
 			m.register(subMap, false);
 			return subMap;
 		}
@@ -5978,7 +5841,7 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 		@Override
 		public MultiversionNavigableMapSnapshot<K, V> snapshot() {
 			checkSnapshot();
-			var subMap = new SubMap<K, V>(m, lo, loInclusive, hi, hiInclusive, isDescending, getCurrentVersion());
+			var subMap = new SubMap<>(m, lo, loInclusive, hi, hiInclusive, isDescending, getCurrentVersion());
 			m.register(subMap, true);
 			return subMap;
 		}
@@ -6423,14 +6286,14 @@ public class Jiffy<K, V> extends AbstractMap<K, V> implements MultiversionNaviga
 
 	@Override
 	public MultiversionNavigableMapSnapshot<K, V> snapshot(long version) {
-		var subMap = new SubMap<K, V>(this, null, false, null, false, false, version);
+		var subMap = new SubMap<>(this, null, false, null, false, false, version);
 		register(subMap, false);
 		return subMap;
 	}
 
 	@Override
 	public MultiversionNavigableMapSnapshot<K, V> snapshot() {
-		var subMap = new SubMap<K, V>(this, null, false, null, false, false, getCurrentVersion());
+		var subMap = new SubMap<>(this, null, false, null, false, false, getCurrentVersion());
 		register(subMap, true);
 		return subMap;
 	}

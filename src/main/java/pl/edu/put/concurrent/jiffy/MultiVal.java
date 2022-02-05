@@ -34,11 +34,10 @@
 
 package pl.edu.put.concurrent.jiffy;
 
+import pl.edu.put.concurrent.jiffy.SingleMultiVal.MultiValIndices;
+
 import java.util.Iterator;
 import java.util.Map;
-
-import pl.edu.put.concurrent.jiffy.SingleMultiVal.MultiValIndices;
-import pl.edu.put.utils.Pair;
 
 interface MultiVal<K, V> {
 
@@ -85,7 +84,7 @@ interface MultiVal<K, V> {
 
 	boolean containsValue(V value);
 
-	Pair<MultiVal<K, V>, MultiVal<K, V>> addAndSplit(K key, V value, int index);
+	DoubleMultiVal<K,V> addAndSplit(K key, V value, int index);
 
 	Iterator<Map.Entry<K, V>> iterator();
 	
@@ -101,5 +100,5 @@ interface MultiVal<K, V> {
 	
 	MultiVal<K, V> add(Batch<K, V> batch, MultiValIndices<K> indices);
 
-	Pair<MultiVal<K, V>, MultiVal<K, V>> addAndSplit(Batch<K, V> batch, MultiValIndices<K> indices);
+	DoubleMultiVal<K,V> addAndSplit(Batch<K, V> batch, MultiValIndices<K> indices);
 }
