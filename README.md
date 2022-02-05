@@ -40,7 +40,7 @@ contact [the repository owner](http://www.cs.put.poznan.pl/tkobus/contact/contac
 
 ### Prerequisites
 
-- Java 11+,
+- Java 14+,
 - gradle 7.0.2 (tested also with gradle 6.5),
 
 

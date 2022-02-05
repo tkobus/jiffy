@@ -162,8 +162,8 @@ public class Main {
 		options.addOption("e", EXECTIME_OPTION, true, "exec time (milliseconds)");
 		options.addOption("w", WARMUPTIME_OPTION, true, "warmup time (milliseconds)");
 
-		options.addOption("o", OUTPUT_FILENAME_OPTION, true, "name of the output file with traces");
-		options.addOption("i", INPUT_FILENAME_OPTION, true, "name of the file with traces");
+//		options.addOption("o", OUTPUT_FILENAME_OPTION, true, "name of the output file with traces");
+//		options.addOption("i", INPUT_FILENAME_OPTION, true, "name of the file with traces");
 
 		options.addOption("h", HELP_OPTION, false, "print this message");
 		return options;
